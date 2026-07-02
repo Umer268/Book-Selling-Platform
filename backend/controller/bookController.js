@@ -1,12 +1,12 @@
 import mongoose from "mongoose";
 import Book from "../models/Book.js";
+import { deleteFromCloudinary, uploadOnCloudinary } from "../utils/cloudinary.js";
 
 export const createBook = async (req, res) => {
   try{
     const {
     title,
     author,
-    image,
     originalPrice,
     discountedPrice,
     description,
@@ -17,7 +17,6 @@ export const createBook = async (req, res) => {
   if (
     !title ||
     !author ||
-    !image ||
     originalPrice == null||
     discountedPrice == null ||
     !description ||
@@ -30,6 +29,22 @@ export const createBook = async (req, res) => {
      });
 
   }
+   
+  if(!req.file){
+        return res.status(400).json({
+            success:false,
+            message:"Book image is required "
+        })
+  }
+
+  const uploadImage  = await uploadOnCloudinary(req.file.path);
+  if(!uploadImage){
+     return res.status(500).json({
+        success:false,
+        message:"Image upload failed"
+     })
+  }
+
 
   if(discountedPrice > originalPrice){
    return res.status(400).json({
@@ -40,7 +55,10 @@ export const createBook = async (req, res) => {
   const book = await Book.create({
     title,
     author,
-    image,
+    image :{
+        url : uploadImage.secure_url,
+        publicId:uploadImage.public_id
+    },
     originalPrice,
     discountedPrice,
     description,
@@ -117,8 +135,27 @@ export const updateBook = async (req,res)=>{
         success:false,
         message:"Invalid Book ID"
     });
-}
-    const newBook = await Book.findByIdAndUpdate(id,req.body,{ returnDocument: 'after', runValidators: true })
+    }   
+
+    if(req.file){
+        const bookSearch = await Book.findById(id);
+        if(!bookSearch){
+        return res.status(404).json({
+        success:false,
+        message:"Book not found"
+    });
+    }
+        if(bookSearch.image?.publicId) await deleteFromCloudinary(bookSearch.image.publicId)
+        const cloudinaryUpload = await uploadOnCloudinary(req.file.path)
+        req.body.image = {
+            url : cloudinaryUpload.secure_url,
+            publicId:cloudinaryUpload.public_id
+        } 
+    }
+    const newBook = await Book.findByIdAndUpdate(id,req.body,{
+        returnDocument: "after",
+        runValidators: true
+    })
     if(!newBook){
         return res.status(404).json({
             success:false,
@@ -139,32 +176,47 @@ catch(err){
         })
 }
 }
-export const deleteBook = async (req,res)=>{
-    try{
-    const {id} = req.params;
-    if(!mongoose.Types.ObjectId.isValid(id)){
-    return res.status(400).json({
-        success:false,
-        message:"Invalid Book ID"
-    });
-}
+
+
+export const deleteBook = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid Book ID"
+      });
+    }
+
     const deletedBook = await Book.findByIdAndDelete(id);
+    
     if (!deletedBook) {
       return res.status(404).json({ 
         success: false,
-        message: "Book not found. Nothing deleted."
-     });
+        message: "Book not found."
+      });
     }
+    if (deletedBook.image?.publicId) {
+      try {
+        await deleteFromCloudinary(deletedBook.image.publicId);
+      } catch (cloudinaryErr) {
+        console.error("Failed to Delete from cloudinary", cloudinaryErr.message);
+      }
+    }
+
     return res.status(200).json({
-        success:true,
-        message:"Book deleted successfully",
-        book:deletedBook
-    })
-    }catch(err){
-        console.log("Error Delete book",err.message);
+      success: true,
+      message: "Book deleted successfully",
+      book: deletedBook
+    });
+
+  } catch (err) {
+    console.error("Error Delete book:", err.message);
     return res.status(500).json({
-        success:false,
-        message:"Internal Server error"
-        })
-    }
-}
+      success: false,
+      message: "Internal Server error"
+    });
+  }
+};
+
