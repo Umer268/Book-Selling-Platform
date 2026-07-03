@@ -82,10 +82,45 @@ export const createBook = async (req, res) => {
 
 export const getBooks = async (req,res) =>{
     try{
-        const books = await Book.find();
+
+        const page = Math.max(Number(req.query.page) || 1 ,1) ;
+        const limit = Math.max(Number(req.query.limit) || 10,1);
+        const skip = (page - 1)*limit;
+
+        let query = {};
+        if(req.query.search){
+          const search = req.query.search;
+          query.$or = [
+    
+                  {title:{$regex:search,$options:"i"}},
+                  {author:{$regex:search,$options:"i"}},
+                  {category:{$regex:search,$options:"i"}}
+                
+              ]
+        }
+        if(req.query.category) query.category = req.query.category;
+        
+        let sort = {};
+        if(req.query.sort=="price_asc"){
+          sort.discountedPrice = 1;
+        }
+        else if(req.query.sort=="price_desc"){
+          sort.discountedPrice = -1;
+        }
+        else if(req.query.sort=="newest"){
+          sort.createdAt = -1;
+        }
+        const books = await Book.find(query).sort(sort).skip(skip).limit(limit);
+        const totalBooks = await Book.countDocuments(query);
+        const totalPages =  Math.ceil(totalBooks/limit);
         return res.status(200).json({
-            success:true,
-            books
+          success:true,
+          currentPage:page,
+          books,
+          totalBooks,
+          totalPages,
+          hasNextPage:totalPages>page,
+          hasPreviousPage:page>1
         })
     }catch(err){
         console.log("Error in fetching books :",err.message)
